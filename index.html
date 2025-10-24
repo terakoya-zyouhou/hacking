@@ -1,0 +1,174 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>高校生向け・ハッキング体験ラボ</title>
+<style>
+  :root{--bg:#0f1222;--card:#151a2f;--ink:#eef1ff;--sub:#a9add6;--ok:#1dd18c;--warn:#ffb02e;--bad:#ff5f7a;--acc:#7aa2ff}
+  *{box-sizing:border-box}
+  body{margin:0;background:linear-gradient(180deg,#0d1020,#0e1530 45%,#0b1020);color:var(--ink);font-family:system-ui,-apple-system,Segoe UI,Roboto,"Noto Sans JP",sans-serif}
+  header{padding:28px 16px;text-align:center;border-bottom:1px solid #243055}
+  header h1{margin:0 0 6px;font-size:28px}
+  header p{margin:0;color:var(--sub)}
+  main{max-width:980px;margin:20px auto;padding:0 14px;display:grid;gap:12px}
+  .card{background:var(--card);border:1px solid #223059;border-radius:16px;overflow:hidden}
+  .card>header{display:flex;justify-content:space-between;align-items:center;background:#131939;padding:12px 14px;border-bottom:1px solid #223059}
+  .card>header h2{margin:0;font-size:18px}
+  .body{padding:14px;display:grid;gap:10px}
+  .row{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+  input,textarea,button{border-radius:12px;border:1px solid #2a355d;background:#0f1430;color:var(--ink)}
+  input,button{padding:10px 12px}
+  textarea{padding:10px 12px;min-height:90px;width:100%}
+  button{cursor:pointer;font-weight:600}
+  .btn{background:#1b2a62;border-color:#27428f}
+  .btn-ghost{background:transparent}
+  .btn-bad{background:#2a1520;border-color:#4b293b}
+  .pill{display:inline-flex;align-items:center;gap:6px;border:1px solid #2a355d;padding:2px 8px;border-radius:999px}
+  .ok{color:var(--ok)} .bad{color:var(--bad)} .sub{color:var(--sub)}
+  .out{background:#0b0f24;border:1px dashed #2a355d;border-radius:12px;padding:10px;min-height:44px}
+  .code{font-family:ui-monospace,SFMono-Regular,Consolas,Menlo,monospace;background:#0b0f24;border:1px solid #2a355d;border-radius:12px;padding:10px;overflow:auto}
+  footer{padding:24px;text-align:center;color:var(--sub)}
+  .hudbar{display:flex;gap:8px;flex-wrap:wrap;align-items:center;justify-content:center;margin-top:10px}
+</style>
+</head>
+<body>
+<header>
+  <h1>🔐 高校生向け・ハッキング体験ラボ</h1>
+  <p>仕掛ける側の視点で “3つだけ” 体験：SQLインジェクション / クロスサイトスクリプティング / ブルートフォース攻撃</p>
+  <p class="sub" style="font-size:12px">※ この教材は<strong>学習専用</strong>です。実サービス・第三者環境への攻撃は<strong>絶対に禁止</strong>です。</p>
+</header>
+
+<main id="app"></main>
+
+<footer>© エシカル学習用 | バージョン: simple-3-missions</footer>
+
+<script>
+/* ====== 便利関数 ====== */
+const $ = s => document.querySelector(s);
+const el = (tag, attrs={}, children=[])=>{const n=document.createElement(tag);for(const[k,v] of Object.entries(attrs)){if(k==='class') n.className=v;else if(k.startsWith('on')&&typeof v==='function') n.addEventListener(k.slice(2),v);else n.setAttribute(k,v);} (Array.isArray(children)?children:[children]).forEach(c=>n.append(c instanceof Node?c:document.createTextNode(c)));return n;};
+const sanitize = (s)=>{const d=document.createElement('div'); d.innerText=s; return d.innerHTML;};
+
+/* ====== 進捗（スコアなし） ====== */
+const KEY = 'simple_lab_progress_v1';
+const state = JSON.parse(localStorage.getItem(KEY) || '{"solved":{}}');
+function save(){ localStorage.setItem(KEY, JSON.stringify(state)); }
+function markSolved(id){ if(!state.solved[id]){ state.solved[id]=true; save(); const tag = document.querySelector(`#m${id} header .pill`); if(tag) tag.textContent = '✅ クリア済'; alert('🎉 ミッションクリア！'); } }
+
+/* ====== 共通カード ====== */
+function card(id,title,build){
+  const section=el('section',{class:'card',id:'m'+id},[
+    el('header',{},[
+      el('h2',{},[id+'. '+title]),
+      el('span',{class:'pill'},[ state.solved?.[id] ? '✅ クリア済' : '未クリア' ])
+    ]),
+    el('div',{class:'body'})
+  ]);
+  build(section.querySelector('.body'), ()=>markSolved(id));
+  return section;
+}
+
+const app = $('#app');
+
+/* ====== M1: SQLインジェクション（疑似ログイン回避） ====== */
+app.append(card(1,'SQLインジェクション：\' OR \'1\'=\'1 で認証回避', (body, solved)=>{
+  const users=[{id:1,username:'taro',pass:'apple'},{id:2,username:'hanako',pass:'book'}];
+  const u=el('input',{placeholder:'ユーザー名 例: taro'});
+  const p=el('input',{placeholder:'パスワード 例: apple', type:'text'});
+  const btn=el('button',{class:'btn'},['ログイン（脆弱）']);
+  const out=el('div',{class:'out'});
+  btn.onclick=()=>{
+    const where = `username='${u.value}' AND pass='${p.value}'`;
+    // 脆弱：文字列連結ベースの疑似クエリ判定
+    const bypass = /'\s*OR\s*'1'\s*=\s*'1/i.test(p.value);
+    const ok = bypass || users.some(x=>x.username===u.value && x.pass===p.value);
+    out.innerHTML = `<div class="code">SELECT * FROM users WHERE ${sanitize(where)}</div>` + (ok? '<p class="ok">✅ ログイン成功（認証回避の可能性）</p>' : '<p class="bad">❌ 失敗</p>');
+    if(bypass) solved();
+  };
+  body.append(
+    el('p',{},['目的：パスワード欄に ', el('span',{class:'code'},['\' OR \'1\'=\'1']), ' を入れて疑似ログインを回避。']),
+    el('div',{class:'row'},[u,p,btn]),
+    out,
+    el('details',{},[
+      el('summary',{},['ヒント']),
+      el('div',{},['クエリが文字列連結で組まれていると、OR 条件を差し込めます。'])
+    ])
+  );
+}));
+
+/* ====== M2: XSS（反射型：入力をそのまま描画） ====== */
+app.append(card(2,'クロスサイトスクリプティング：クロスサイトスクリプティングでアラート', (body, solved)=>{
+  const i=el('input',{placeholder:"例: <img src=x onerror=alert('XSS')>"});
+  const btn=el('button',{class:'btn'},['プレビュー（脆弱）']);
+  const safeBtn=el('button',{class:'btn-ghost'},['安全プレビュー（無害化）']);
+  const out=el('div',{class:'out'},'ここに表示されます');
+  btn.onclick=()=>{ out.innerHTML = i.value; if(out.querySelector('script')||out.querySelector('[onerror],[onload]')) solved(); };
+  safeBtn.onclick=()=>{ out.innerHTML = sanitize(i.value); };
+  body.append(
+    el('p',{},['目的：入力をそのまま innerHTML に入れると危険。onerror などで実行させられる。']),
+    el('div',{class:'row'},[i,btn,safeBtn]),
+    out,
+    el('details',{},[
+      el('summary',{},['ヒント']),
+      el('div',{},['タグを閉じてイベント属性を使う方法（例：', el('span',{class:'code'},["<img src=x onerror=alert('XSS')>"]), '）'])
+    ])
+  );
+}));
+
+/* ====== M3: ブルートフォース（総当り） ====== */
+app.append(card(3,'ブルートフォース攻撃：辞書攻撃シミュレータ', (body, solved)=>{
+  // 被攻撃側：弱いパスワード、ロックアウト無し
+  const targetUser = { username:'student', password:'pass123' };
+  const passInput=el('input',{placeholder:'単発パスワード試行（例: pass123）'});
+  const tryBtn=el('button',{class:'btn'},['1回だけ試す']);
+  const out=el('div',{class:'out'});
+
+  // 攻撃側：辞書リスト
+  const wordlist = ['0000','1111','password','qwerty','letmein','pass123','admin','welcome'];
+  const autoBtn=el('button',{class:'btn-bad'},['辞書攻撃スタート']);
+  const stopBtn=el('button',{class:'btn-ghost'},['停止']);
+
+  let tries=0, timer=null, idx=0;
+
+  function log(msg){ out.innerHTML += `<div>${sanitize(msg)}</div>`; out.scrollTop=out.scrollHeight; }
+  function reset(){ tries=0; idx=0; clearInterval(timer); timer=null; out.innerHTML=''; }
+
+  tryBtn.onclick=()=>{
+    const ok = passInput.value===targetUser.password;
+    log(`試行: ${passInput.value} → ${ok? '✅ 成功' : '❌ 失敗'}`);
+    if(ok) solved();
+  };
+
+  autoBtn.onclick=()=>{
+    if(timer) return; out.innerHTML=''; tries=0; idx=0;
+    log('辞書攻撃を開始…（ロックアウト・CAPTCHA 無しの想定）');
+    timer=setInterval(()=>{
+      if(idx>=wordlist.length){ clearInterval(timer); timer=null; log('辞書枯渇：失敗'); return; }
+      const cand = wordlist[idx++]; tries++;
+      const ok = cand===targetUser.password;
+      log(`試行#${tries}: ${cand} → ${ok? '✅ 成功' : '❌ 失敗'}`);
+      if(ok){ clearInterval(timer); timer=null; log('\n➡️ 成功：パスワードが特定されました。'); solved(); }
+    }, 300);
+  };
+
+  stopBtn.onclick=()=>{ clearInterval(timer); timer=null; log('停止しました。'); };
+
+  body.append(
+    el('p',{},['目的：弱いパスワード + ロックアウト無しの環境で、辞書攻撃が通る様子を体験する。']),
+    el('div',{class:'row'},[passInput, tryBtn]),
+    el('div',{class:'row'},[autoBtn, stopBtn]),
+    out,
+    el('details',{},[
+      el('summary',{},['ヒント（守る側の対策）']),
+      el('ul',{},[
+        el('li',{},['試行回数制限と一時ロックアウト']),
+        el('li',{},['CAPTCHA や多要素認証（MFA）']),
+        el('li',{},['ランダムで長いパスワード + パスワードマネージャー'])
+      ])
+    ])
+  );
+}));
+</script>
+</body>
+</html>
+
